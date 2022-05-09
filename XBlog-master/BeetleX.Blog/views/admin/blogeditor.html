@@ -1,0 +1,402 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8" />
+    <link href="/css/bootstrap.css" rel="stylesheet" />
+    <link href="/css/bootstrap-theme.css" rel="stylesheet" />
+    <link href="/css/admin.css" rel="stylesheet" />
+    <script src="/js/jquery.js"></script>
+    <script src="/js/ModuleLoader.js"></script>
+    <script src="/js/bootstrap.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue"></script>
+    <script src="/js/FastHttpApi.js"></script>
+    <script src="/js/admin/AdminBlog.js"></script>
+    <script src="/js/admin/AdminCategory.js"></script>
+    <script src="/js/admin/AdminSetting.js"></script>
+    <script src="/js/marked.js"></script>
+    <script src="/js/lodash.js"></script>
+    <title>BeetleX Blog Admin</title>
+</head>
+<body>
+    <div class="navbar navbar-inverse navbar-fixed-left" slot="header">
+
+    </div>
+    <div class="page-title">
+        <img src="/images/admin/nav.png" /> <h3>文章编辑</h3>
+    </div>
+
+    <div class="container bs-docs-container">
+        <div class="row">
+            <form class="form-horizontal" id="blogEditor">
+                <div class="form-group">
+                    <label class="col-sm-1 control-label">标题</label>
+                    <div class="col-sm-10">
+                        <input type="text" v-model:value="title" class="form-control" placeholder="标题">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-sm-offset-1 col-sm-10" style="margin-bottom:6px;">
+
+                        <a class="btn  btn-default btn-sm" href="http://www.freeimagehosting.net/" target="_blank">站外图片</a>
+                        <button type="button" onclick="$('#webImg').trigger('click');" class="btn  btn-default btn-sm">站内图片</button>
+                        <button type="button" onclick="$('#TCouldImg').trigger('click');" class="btn  btn-default btn-sm">腾讯云图片</button>
+                        <button type="button" onclick="$('#upfile').trigger('click');" class="btn  btn-default btn-sm">腾讯云文件</button>
+                        <button type="button" onclick="insertCode()" class="btn  btn-default btn-sm">代码</button>
+                        <input id="webImg" type="file" style="display:none" multiple />
+                        <input id="TCouldImg" type="file" style="display:none" multiple />
+                        <input id="upfile" type="file" style="display:none" />
+                        <label>文章内容(Markdown)</label>
+                        <a href="javascript:void(0)" onclick="$('#txtEditor').show(); $('#txtView').hide()" class="">编辑</a>
+                        <a href="javascript:void(0)" onclick="$('#txtEditor').hide(); $('#txtView').show()" class="">预览</a>
+                        <div id="imgLoading" style="display:none;">
+                            <span id="txtLoading"><img src="/images/ajax-loader.gif" />文件上传中...</span>
+                        </div>
+
+                    </div>
+                    <div id="txtEditor" class="col-sm-offset-1 col-sm-10">
+                        <textarea id="txtContent" :value="content" @input="update" rows="25" style="width:100%"></textarea>
+                    </div>
+                    <div id="txtView" style="display:none;height:500px;overflow-y: auto; overflow-x:hidden;" class="col-sm-offset-1 col-sm-10" v-html="compiledMarkdown">
+
+                    </div>
+
+
+                </div>
+                <div class="form-group">
+                    <div class="col-sm-offset-1 col-sm-10">
+                        <div class="checkbox">
+                            <label>
+                                <input type="checkbox" v-model="top"> 置顶
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="col-sm-1 control-label">分类</label>
+                    <div class="col-sm-10">
+                        <select class="form-control" v-model="category">
+                            <option v-for="item in categories" :value="item.ID">{{item.Name}}</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="col-sm-1 control-label">标签</label>
+                    <div class="col-sm-10">
+                        <input type="text" v-model:value="tags" class="form-control" placeholder="标签以空格分隔">
+                    </div>
+                </div>
+
+
+                <div class="form-group">
+                    <label class="col-sm-1 control-label">来源</label>
+                    <div class="col-sm-10">
+                        <input type="text" v-model:value="sourceUrl" class="form-control" placeholder="标题">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <div class="col-sm-offset-1 col-sm-10">
+                        <button type="button" onclick="Save()" class="btn btn-default">保存</button>
+                    </div>
+                </div>
+            </form>
+
+
+        </div>
+    </div>
+
+    <div class="container" style="text-align:center;" slot="footer">
+
+    </div>
+    <script>
+        var blogEditor;
+        var id;
+        $(document).ready(function () {
+            blogEditor = new Vue({
+                el: '#blogEditor',
+                data: { content: '', title: '', tags: '', sourceUrl: '', category: 0, categories: [], top: false },
+                computed: {
+                    compiledMarkdown: function () {
+                        return marked(this.content, { sanitize: true })
+                    }
+                },
+                methods: {
+                    update: _.debounce(function (e) {
+                        this.content = e.target.value
+                    }, 300)
+                }
+            });
+            id = _url.queryString["id"];
+            if (!id)
+                id = 0;
+            else
+                LoadBlog();
+            ListCategories();
+            bindUploadFile();
+            $('#txtContent').bind('paste', function (event) {
+
+                var e = event.originalEvent;
+                var items = e.clipboardData.items;
+                for (var i = 0; i < items.length; ++i) {
+                    if (items[i].kind == 'file' && items[i].type.indexOf('image/') >= 0) {
+                        e.preventDefault();
+                        var blob = items[i].getAsFile();
+                        LoadResizeImageData(blob, function (file, buffer) {
+                            var d = new Date();
+                            var n = d.getTime();
+                            file = n.toString() + "_" + file;
+                            $.ajax({
+                                url: '/admin/setting/UploadImage?file=' + encodeURI(file),
+                                type: 'PUT',
+                                data: buffer,
+                                contentType: false,
+                                processData: false,
+                                beforeSend: function (xhr) {
+                                    $('#imgLoading').show();
+                                },
+                                success: function (result) {
+                                    var str = "\r\n\r\n";
+                                    str += "![](" + result.Data + ")";
+                                    str += "\r\n\r\n";
+                                    var el = $('#txtContent');
+                                    var newText = str;
+                                    var start = el.prop("selectionStart")
+                                    var end = el.prop("selectionEnd")
+                                    var text = el.val()
+                                    var before = text.substring(0, start)
+                                    var after = text.substring(end, text.length)
+                                    el.val(before + newText + after)
+                                    el[0].selectionStart = el[0].selectionEnd = start + newText.length
+                                    el.focus()
+                                    var text = el.val();
+                                    blogEditor.content = text;
+                                },
+                                complete: function (jqXHR, textStatus) {
+                                    if (textStatus != 'success')
+                                        alert("Error:" + jqXHR.responseText);
+                                    $('#imgLoading').hide();
+                                }
+                            });
+                        });
+
+
+                    };
+                };
+            });
+        });
+
+        function LoadResizeImageData(file, callback) {
+            var filename = file.name;
+            var img = document.createElement("img");
+            img.onload = function () {
+                var canvas = document.createElement("canvas");
+                var MAX_WIDTH = 800;
+                var MAX_HEIGHT = 600;
+                var width = img.width;
+                var height = img.height;
+                if (width > height) {
+                    if (width > MAX_WIDTH) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    }
+                } else {
+                    if (height > MAX_HEIGHT) {
+                        width *= MAX_HEIGHT / height;
+                        height = MAX_HEIGHT;
+                    }
+                }
+                canvas.width = width;
+                canvas.height = height;
+                var ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0, width, height);
+                var dataUrl = canvas.toDataURL('image/jpeg', 0.98);
+                var byteString = atob(dataUrl.split(',')[1]);
+                var ab = new ArrayBuffer(byteString.length);
+                var ia = new Uint8Array(ab);
+                for (var i = 0; i < byteString.length; i++) {
+                    ia[i] = byteString.charCodeAt(i);
+                }
+                callback(filename, ab);
+            }
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                img.src = e.target.result;
+            }
+            reader.readAsDataURL(file);
+        }
+
+        function insertCode() {
+            var str = $('#txtContent').val();
+            str += "\r\n```\r\n";
+            str += "代码\r\n";
+            str += "```\r\n";
+            $('#txtContent').val(str);
+            $('#txtView').html(marked(str, { sanitize: true }));
+        }
+
+        function bindUploadFile() {
+            $('#webImg').change(function (evt) {
+                if (evt.target.files && evt.target.files.length > 0) {
+                    for (var i = 0; i < evt.target.files.length; i++) {
+                        var file = evt.target.files[i];
+                        var name = file.name.toLowerCase();
+                        if (name.indexOf('.jpg') || name.indexOf('.png')) {
+                            LoadResizeImageData(file, function (filename, buffer) {
+                                $.ajax({
+                                    url: '/admin/setting/UploadImage?file=' + encodeURI(filename),
+                                    type: 'PUT',
+                                    data: buffer,
+                                    contentType: false,
+                                    processData: false,
+                                    beforeSend: function (xhr) {
+                                        $('#imgLoading').show();
+                                    },
+                                    success: function (result) {
+                                        var str = "\r\n";
+                                        str += "![](" + result.Data + ")";
+                                        str += "\r\n";
+                                        blogEditor.content += str;
+                                    },
+                                    complete: function (jqXHR, textStatus) {
+                                        if (textStatus != 'success')
+                                            alert("Error:" + jqXHR.responseText);
+                                        $('#imgLoading').hide();
+                                    }
+                                });
+                            });
+                        }
+                        else {
+                            alert(name + '无效，请选择jpg或png图片!');
+                        }
+                    }
+                }
+            });
+            $('#TCouldImg').change(function (evt) {
+                if (evt.target.files && evt.target.files.length > 0) {
+                    for (var i = 0; i < evt.target.files.length; i++) {
+                        var file = evt.target.files[i];
+                        var name = file.name.toLowerCase();
+                        if (name.indexOf('.jpg') || name.indexOf('.png')) {
+                            //ResizeImage(file);
+                            LoadResizeImageData(file, function (filename, buffer) {
+                                AdminSettingGetFileAndTCloudToken(filename).execute(function (r) {
+                                    var token = r.Data.Token;
+                                    var url = r.Data.Url;
+                                    $.ajax({
+                                        url: url,
+                                        type: 'PUT',
+                                        data: buffer,
+                                        contentType: false,
+                                        processData: false,
+                                        beforeSend: function (xhr) {
+                                            xhr.setRequestHeader("Authorization", token);
+                                            $('#imgLoading').show();
+                                        },
+                                        success: function (result) {
+                                            var str = "\r\n";
+                                            str += "![](" + url + ")";
+                                            str += "\r\n";
+                                            blogEditor.content += str;
+                                        },
+                                        complete: function (jqXHR, textStatus) {
+                                            if (textStatus != 'success')
+                                                alert("Error:" + jqXHR.responseText);
+                                            $('#imgLoading').hide();
+                                        }
+                                    });
+                                });
+                            });
+                        }
+                        else {
+                            alert(name + '无效，请选择jpg或png图片!');
+                        }
+                    }
+                }
+            });
+
+            $('#upfile').change(function (evt) {
+                if (evt.target.files && evt.target.files.length > 0) {
+                    for (var i = 0; i < evt.target.files.length; i++) {
+                        var file = evt.target.files[i];
+                        var filename = file.name;
+                        AdminSettingGetFileAndTCloudToken(filename).execute(function (r) {
+                            var token = r.Data.Token;
+                            var url = r.Data.Url;
+                            var reader = new FileReader();
+                            reader.onload = function (evt) {
+                                if (evt.target.readyState == FileReader.DONE) {
+                                    var buffer = reader.result;
+                                    $.ajax({
+                                        url: url,
+                                        type: 'PUT',
+                                        data: buffer,
+                                        contentType: false,
+                                        processData: false,
+                                        beforeSend: function (xhr) {
+                                            xhr.setRequestHeader("Authorization", token);
+                                            $('#imgLoading').show();
+                                        },
+                                        success: function (result) {
+                                            var str = $('#txtContent').val();
+                                            str += "[" + filename + "](" + encodeURI(url) + ")";
+                                            $('#txtContent').val(str);
+                                            $('#txtView').html(marked(str, { sanitize: true }));
+                                        },
+                                        complete: function (jqXHR, textStatus) {
+                                            if (textStatus != 'success')
+                                                alert("Error:" + jqXHR.responseText);
+                                            $('#imgLoading').hide();
+                                        }
+                                    });
+                                }
+                            };
+                            var blob = file.slice(0, file.size);
+                            reader.readAsArrayBuffer(blob);
+                        });
+                    }
+                }
+            });
+        }
+
+        function LoadBlog() {
+            AdminBlogGet(id).execute(function (result) {
+                blogEditor.content = result.Data.Content;
+                blogEditor.category = result.Data.CategoryID;
+                blogEditor.sourceUrl = result.Data.SourceUrl;
+                blogEditor.tags = result.Data.Tags;
+                blogEditor.top = result.Data.Top;
+                blogEditor.title = result.Data.Title;
+            });
+        }
+        function ListCategories() {
+            AdminCategoryList().execute(function (result) {
+                blogEditor.categories = result.Data;
+            });
+
+        }
+
+        function Save() {
+            var summary = $('#txtView').text();
+            if (summary.length > 150)
+                summary = summary.substring(0, 150);
+            summary += "...";
+            if (!blogEditor.title) {
+                alert('请输入文章标题！');
+                return;
+            }
+            if (!blogEditor.content) {
+                alert('请输入文章内容！');
+                return;
+            }
+            AdminBlogModify(id, blogEditor.title, blogEditor.top, blogEditor.tags,
+                blogEditor.category, blogEditor.sourceUrl, blogEditor.content, summary).execute(function (r) {
+                    window.location.href = 'index.html';
+                });
+        }
+    </script>
+</body>
+
+</html>
